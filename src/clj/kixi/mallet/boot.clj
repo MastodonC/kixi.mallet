@@ -1,5 +1,8 @@
 (ns kixi.mallet.boot
   (:require [boot.core :as c :refer [deftask]]
+            [boot.file :as file]
+            [boot.util :refer [info]]
+            [kixi.mallet.word :as word]
             [clojure.java.io :as io]
             [clojure.string :as str])
   (:import [cc.mallet.classify.tui Text2Vectors]))
@@ -22,6 +25,44 @@
          (let [out# (io/file tmp# ~'output)]
            (~method (options->args (merge ~'*opts* {:output out#}))))
          (-> fileset# (c/add-resource tmp#) c/commit!)))))
+
+(defn text-input-meta
+  [dir]
+  (-> (file-seq dir)
+      (->> (filter #(.isFile %))
+           (map #(.getPath (file/relative-to dir %))))
+      (zipmap (repeat {::kixi-input true}))))
+
+(def text-extractors
+  {".docx" word/docx->text})
+
+(defn text-extractor [file]
+  (some (fn [[suffix extractor]]
+          (when (-> (c/tmp-path file)
+                    (.endsWith suffix))
+            extractor)) text-extractors))
+
+(defn ->txt-filename
+  [filename]
+  (str filename ".txt"))
+
+(deftask extract-text
+  []
+  (let [tmp (c/tmp-dir!)]
+    (c/with-pre-wrap fileset
+      (let [files (c/by-ext (keys text-extractors) (c/input-files fileset))]
+        (doseq [file files
+                :let [tmp-file (c/tmp-file file)]]
+          (when-let [extractor (text-extractor file)]
+            (let [out-file (io/file tmp (->txt-filename (.getName tmp-file)))]
+              (info "Writing %s...\n" (.getName out-file))
+              (doto out-file
+                io/make-parents
+                (spit (extractor (c/tmp-file file)))))))
+        (-> fileset
+            (c/add-resource tmp)
+            (c/add-meta (text-input-meta tmp))
+            c/commit!)))))
 
 (defmallet import-dir Text2Vectors/main
   "A boot task exposing Mallet's import-dir command."
