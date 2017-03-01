@@ -7,23 +7,32 @@
             [clojure.string :as str])
   (:import [cc.mallet.classify.tui Text2Vectors]))
 
-(defn mallet-arg [x]
-  (if (vector? x)
+(defn relative-file? [file]
+  (not (.startsWith (str file) "/")))
+
+(defn mallet-arg [fileset x]
+  (cond
+    (vector? x)
     (str/join "," x)
+    (and (instance? File x)
+         (relative-file? x))
+    (str "target/" x)
+    :else
     (str x)))
 
-(defn options->args [options]
+(defn options->args [fileset options]
   (->> options
        (mapcat (fn [[k v]]
-                 (vector (str "--" (name k)) (mallet-arg v))))
+                 (vector (str "--" (name k)) (mallet-arg fileset v))))
        (into-array String)))
 
 (defmacro defmallet [task-name method docstring options]
   `(deftask ~task-name ~docstring ~options
      (let [tmp# (c/tmp-dir!)]
        (c/with-pre-wrap fileset#
-         (let [out# (io/file tmp# ~'output)]
-           (~method (options->args (merge ~'*opts* {:output out#}))))
+         (let [out# (io/file tmp# ~'output)
+               in# (io/file tmp# ~'input)]
+           (~method (options->args fileset# (merge ~'*opts* {:output out#}))))
          (-> fileset# (c/add-resource tmp#) c/commit!)))))
 
 (defn text-input-meta
