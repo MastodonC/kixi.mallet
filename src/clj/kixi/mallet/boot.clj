@@ -50,16 +50,20 @@
   []
   (let [tmp (c/tmp-dir!)]
     (c/with-pre-wrap fileset
+      (c/empty-dir! tmp)
       (let [files (c/by-ext (keys text-extractors) (c/input-files fileset))]
         (doseq [file files
                 :let [tmp-file (c/tmp-file file)]]
           (when-let [extractor (text-extractor file)]
-            (let [out-file (io/file tmp (->txt-filename (.getName tmp-file)))]
-              (info "Writing %s...\n" (.getName out-file))
+            (let [filename (->txt-filename (c/tmp-path file))
+                  out-file (io/file tmp filename)]
+              (info "Writing %s...\n" filename)
               (doto out-file
                 io/make-parents
-                (spit (extractor (c/tmp-file file)))))))
+                (spit (extractor (c/tmp-file file))))
+              (file/delete-file tmp-file))))
         (-> fileset
+            (c/rm files)
             (c/add-resource tmp)
             (c/add-meta (text-input-meta tmp))
             c/commit!)))))
