@@ -7,6 +7,7 @@
  :resource-paths #{"resources"}
  :dependencies '[[org.clojure/clojure "1.8.0"]
                  [cc.mallet/mallet "2.0.8"]
+                 [me.raynes/fs "1.4.6"]
                  [org.apache.poi/poi "3.15"]
                  [org.apache.poi/poi-scratchpad "3.15"]
                  [org.apache.poi/poi-ooxml "3.15"]
