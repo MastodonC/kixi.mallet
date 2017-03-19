@@ -5,12 +5,16 @@
 
 ;; Utility functions ;;
 
+(def stemmed-words (atom {}))
+
 (def stemmer (new englishStemmer))
 
 (defn stem [text]
-  (doto stemmer
-    (.setCurrent text)
-    (.stem)))
+  (let [stemmed (doto stemmer
+                  (.setCurrent text)
+                  (.stem))]
+    (swap! stemmed-words update-in [stemmed text] (fnil inc 0))
+    stemmed))
 
 (defn stem-data [instance]
   (update instance :data stem))

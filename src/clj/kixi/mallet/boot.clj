@@ -3,6 +3,8 @@
             [boot.file :as file]
             [boot.util :refer [info]]
             [kixi.mallet.word :as word]
+            [kixi.mallet.pipes :as pipes]
+            [kixi.mallet.script :as script]
             [clojure.java.io :as io]
             [clojure.string :as str]
             [me.raynes.fs :as fs])
@@ -20,55 +22,13 @@
            [java.io File FileOutputStream ObjectOutputStream]
            [java.nio.charset Charset]))
 
-(defn relative-file? [file]
-  (not (.startsWith (str file) "/")))
-
-(defn make-virtual-directory [fileset x]
-  (let [tmp (c/tmp-dir!)
-        files (c/by-re [#"^doc"] (c/input-files fileset))]
-    (doseq [file files
-            :let [file (c/tmp-file file)]]
-      (fs/copy file (io/file tmp (fs/base-name file))))
-    (.getPath tmp)))
+;; Utility functions ;;
 
 (defn by-prefix [prefix files]
-  (c/by-re [#"^doc"] files))
-
-(defn mallet-arg [fileset tmp k v]
-  (cond
-    (= k :input)
-    (make-virtual-directory fileset v)
-    (vector? v)
-    (str/join "," v)
-    (instance? File v)
-    (.getPath v)
-    :else
-    (str v)))
-
-(defn mallet-arg-2 [fileset tmp k v]
-  (cond    
-    (vector? v)
-    (str/join "," v)
-    (instance? File v)
-    (.getPath v)
-    :else
-    (str v)))
-
-(defn options->args [fileset tmp options to-arg]
-  (->> options
-       (mapcat (fn [[k v]]
-                 (vector (str "--" (name k)) (to-arg fileset tmp k v))))
-       (into-array String)))
-
-(defmacro defmallet [task-name method to-arg docstring options]
-  `(deftask ~task-name ~docstring ~options
-     (let [tmp# (c/tmp-dir!)]
-       (c/with-pre-wrap fileset#
-         (let [;; out# (io/file tmp# ~'output)
-               ;;in# (io/file tmp# ~'input)
-               ]
-           (~method (options->args fileset# tmp# (merge ~'*opts* #_{:output out#}) ~to-arg)))
-         (-> fileset# (c/add-resource tmp#) c/commit!)))))
+  (-> (str "^" prefix)
+      (re-pattern)
+      (vector)
+      (c/by-re files)))
 
 (defn text-input-meta
   [dir]
@@ -89,6 +49,48 @@
 (defn ->txt-filename
   [filename]
   (str filename ".txt"))
+
+(defn update-vals-for-keys [coll f keys]
+  (reduce (fn [coll k]
+            (update coll k f)) coll keys))
+
+(defn shared-parent-directory
+  "Find the shared parent directory with the longest path"
+  [file1 file2]
+  (->> (clojure.set/intersection (set (conj (fs/parents file1) file1))
+                                 (set (conj (fs/parents file2) file2)))
+       (apply max-key (comp count str))))
+
+(defn with-fileset-wrapping
+  "Provide a wapper around a function which operates on files.
+  This wrapper takes care of creating a temp directory
+  and committing changes back to the fileset.
+  For this to work we need to know which keys in the opts map
+  correspond to input or output files."
+  [f opts {:keys [in out in-dir]}]
+  (c/with-pre-wrap fileset
+    (let [tmp (c/tmp-dir!)
+          infile (fn [input]
+                   (some-> (c/by-name [(str input)] (c/input-files fileset))
+                           (first)
+                           (c/tmp-file)))
+          outfile (fn [output]
+                    (doto (io/file tmp output)
+                      io/make-parents))
+          indir (fn [input]
+                  (->>  (c/by-re [#"docs"] (c/input-files fileset))
+                        (c/not-by-name [".DS_Store"])
+                        (map c/tmp-file)
+                        (reduce shared-parent-directory)))
+          opts (-> (update-vals-for-keys opts infile in)
+                   (update-vals-for-keys indir in-dir)
+                   (update-vals-for-keys outfile out))]
+      (f opts)
+      (-> fileset
+          (c/add-resource tmp)
+          (c/commit!)))))
+
+;; Tasks ;;
 
 (deftask extract-text
   []
@@ -114,7 +116,7 @@
 
 (deftask import-dir
   "A boot task which mirrors Mallet's import-dir command."
-  [i input DIR file "The directories containing text files to be classified, one directory per class"
+  [i input DIR file "The directory containing text files to be classified, one directory per class"
    o output FILE file "Write the instance list to this file; Using - indicates stdout. Default is text.vectors"
    r remove-stopwords bool "If true, remove a default list of common English \"stop words\" from the text. Default is false"
    g gram-sizes INT [int] "Include among the features all n-grams of sizes specified.  For example, to get all unigrams and bigrams, use --gram-sizes 1,2.  This option occurs after the removal of stop words, if removed. Default is 1"
@@ -122,49 +124,13 @@
    p string-pipes NAME [sym] "An ordered sequence of string pipes to apply"
    t token-pipes NAME [sym] "An ordered sequence of token pipes to apply"
    v feature-vector-pipes NAME [sym] "An ordered sequence of feature vector pipes to apply"]
-  (let [tmp (c/tmp-dir!)]
-    (c/with-pre-wrap fileset
-      (c/empty-dir! tmp)
-      (let [default-token-regex (re-pattern "\\p{L}[\\p{L}\\p{P}]+\\p{L}")
-            directories (->> (c/input-files fileset)
-                             (by-prefix (str input))
-                             (map c/tmp-file)
-                             (map #(.getParentFile %))
-                             (distinct)
-                             (into-array File))
-            instantiate (fn [sym]
-                          (clojure.lang.Reflector/invokeConstructor (resolve sym) (into-array [])))
-            pipes (concat [(Target2Label.)
-                           (Input2CharSequence. (.. Charset defaultCharset displayName))]
-                          (when string-pipes
-                            (map instantiate string-pipes))
-                          [(CharSequence2TokenSequence. default-token-regex)
-                           (TokenSequenceRemoveNonAlpha. true)
-                           (when remove-stopwords
-                             (TokenSequenceRemoveStopwords. false true))]
-                          (when token-pipes
-                            (map instantiate token-pipes))
-                          [(when gram-sizes (TokenSequenceNGrams. (int-array gram-sizes)))
-                           (TokenSequence2FeatureSequence.)
-                           (when-not keep-sequence
-                             (FeatureSequence2AugmentableFeatureVector. false))]
 
-                          (when feature-vector-pipes
-                            (map instantiate feature-vector-pipes)))
-            instance-pipe (SerialPipes. (into-array Pipe (keep identity pipes)))
-            instances (InstanceList. instance-pipe)
-            out-file (io/file tmp output)]
-        (.addThruPipe instances (FileIterator. directories FileIterator/STARTING_DIRECTORIES true))
-        (doto (-> (doto out-file io/make-parents)
-                  (FileOutputStream.)
-                  (ObjectOutputStream.))
-          (.writeObject instances)
-          (.close))
-        (-> fileset
-            (c/add-resource tmp)
-            (c/commit!))))))
+  (with-fileset-wrapping
+    script/import-dir *opts*
+    {:in-dir #{:input}
+     :out #{:output}}))
 
-(defmallet train-topics TopicTrainer/main mallet-arg-2
+(deftask train-topics
   "A boot task exposing Mallet's train-topics command."
   [i input FILE file "The filename from which to read the list of training instances.  Use - for stdin. The instances must be FeatureSequence or FeatureSequenceWithBigrams, not FeatureVector. Default is null"
    o output-model FILE file "The filename in which to write the binary topic model at the end of the iterations.  By default this is null, indicating that no file will be written. Default is null"
@@ -175,27 +141,22 @@
    a alpha DECIMAL float "SumAlpha parameter: sum over topics of smoothing over doc-topic distributions. alpha_k = [this value] / [num topics]. Default is 5.0"
    b beta DECIMAL float "Beta parameter: smoothing parameter for each topic-word. beta_w = [this value]. Default is 0.01"
    e evaluator-filename FILE file "A held-out likelihood evaluator for new documents"
-   t show-topics-interval INT int "The number of iterations between printing a brief summary of topics so far"])
+   t show-topics-interval INT int "The number of iterations between printing a brief summary of topics so far"]
 
-(defn print-topics [topics]
-  (doseq [[i topic] (map-indexed vector topics)]
-    (println (format "== Topic %d ==" i))
-    (println (str/join ", " (for [word topic] (str/replace word "_" " "))))
-    (println "")))
+  (with-fileset-wrapping
+    script/train-topics *opts*
+    {:in #{:input}
+     :out #{:output-model}}))
 
 (deftask view-topics
   [ ;;i input FILE file "The filename from which to read the list of instances"
    m model FILE file "The filename from which to read the model"
    n top-words INT int "The number of top words to show"]
-  (let [tmp (c/tmp-dir!)
-        model (ParallelTopicModel/read model)
-        topic-names (clojure.string/split (.toString (.getTopicAlphabet model)) #"\n")
-        top-topics (.getTopWords model (or top-words 20))]
-    (c/with-pre-wrap fileset
-      (print-topics top-topics)
-      fileset)))
+  (with-fileset-wrapping
+    script/view-topics *opts*
+    {:in #{:model}}))
 
-(defmallet evaluate-topics EvaluateTopics/main mallet-arg-2
+(deftask evaluate-topics
   "A boot task exposing Mallet's evaluate-topics"
   [e evaluator FILE file "Evaluator filename"
    i input FILE file "The filename from which to read the list of instances"
@@ -207,4 +168,9 @@
    n num-iterations INT int "The number of iterations of Gibbs sampling"
    s sample-interval INT int "The number of iterations between saved samples"
    b burn-in INT int "The number of iterations before the first sample is saved"
-   x random-seed INT int "The random seed for the Gibbs sampler"])
+   x random-seed INT int "The random seed for the Gibbs sampler"]
+
+  (with-fileset-wrapping
+    script/evaluate-topics *opts*
+    {:in #{:input :evaluator}
+     :out #{:output-doc-probs :output-prob}}))
