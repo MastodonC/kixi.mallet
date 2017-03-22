@@ -174,3 +174,12 @@
     script/evaluate-topics *opts*
     {:in #{:input :evaluator}
      :out #{:output-doc-probs :output-prob}}))
+
+(deftask topics-csv
+  [m model FILE file "The model file"
+   i input FILE file "The input file"
+   o output FILE file "The output file"]
+  (with-fileset-wrapping
+    script/topics-csv *opts*
+    {:in #{:model :input}
+     :out #{:output}}))

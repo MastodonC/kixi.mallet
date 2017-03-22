@@ -1,17 +1,21 @@
 (task-options!
  pom {:project 'kixi/mallet
-      :version "0.0.1-SNAPSHOT"})
+      :version "0.0.1-SNAPSHOT"}
+ push {:repo "clojars"})
 
 (set-env!
- :source-paths #{"src/clj" "src/java"}
- :resource-paths #{"src/clj" "resources"}
+ :source-paths #{"src"}
+ :resource-paths #{"src" "resources"}
  :dependencies '[[org.clojure/clojure "1.8.0"]
                  [cc.mallet/mallet "2.0.8"]
                  [me.raynes/fs "1.4.6"]
                  [org.apache.poi/poi "3.15"]
                  [org.apache.poi/poi-scratchpad "3.15"]
                  [org.apache.poi/poi-ooxml "3.15"]
-                 [com.github.rholder/snowball-stemmer "1.3.0.581.1"]])
+                 [com.github.rholder/snowball-stemmer "1.3.0.581.1"]]
+ :repositories #(conj % ["clojars" {:url "https://clojars.org/repo/"
+                                    :username (System/getenv "CLOJARS_USER")
+                                    :password (System/getenv "CLOJARS_PASS")}]))
 
 ;; (require '[kixi.mallet.boot :refer :all])
 
@@ -20,3 +24,10 @@
         (pom)
         (jar)
         (install)))
+
+(deftask release
+  []
+  (comp (aot :namespace #{'kixi.mallet.pipes})
+        (pom)
+        (jar)
+        (push)))

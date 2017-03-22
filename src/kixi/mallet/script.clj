@@ -72,7 +72,6 @@
         instance-pipe (SerialPipes. (into-array Pipe (keep identity pipes)))
         instances (InstanceList. instance-pipe)]
     (.addThruPipe instances (FileIterator. directories FileIterator/STARTING_DIRECTORIES true))
-    (prn @kixi.mallet.pipes/stemmed-words)
     (doto (-> (:output opts)
               (FileOutputStream.)
               (ObjectOutputStream.))
@@ -103,3 +102,20 @@
   [opts]
   (-> (options->args opts)
       (EvaluateTopics/main)))
+
+(defn topics-csv
+  "Output a CSV showing the topic allocations"
+  [opts]
+  (let [model (ParallelTopicModel/read (:model opts))
+        instances (InstanceList/load (:input opts))]
+    (->> (map-indexed (fn [i instance]
+                        (let [probabilities (vec (.getTopicProbabilities model i))
+                              topic-index (->> (map-indexed vector probabilities)
+                                               (apply max-key second)
+                                               (first))
+                              {:keys [data name source target]} (bean instance)]
+                          (->> (map #(str/replace (str %) #"\s+" " ") [topic-index data name source target])
+                               (str/join "\t"))))
+                      instances)
+         (str/join "\n")
+         (spit (:output opts)))))
