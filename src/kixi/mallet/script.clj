@@ -4,12 +4,15 @@
             [boot.util :refer [info]]
             [kixi.mallet.word :as word]
             [kixi.mallet.pipes :as pipes]
+            [kixi.mallet.topics.model :as model]
+            [clojure.data.xml :as xml]
+            [clojure.data.zip :as zip]
             [clojure.java.io :as io]
             [clojure.string :as str]
             [me.raynes.fs :as fs])
   (:import [cc.mallet.classify.tui Text2Vectors]
            [cc.mallet.types InstanceList]
-           [cc.mallet.topics.tui TopicTrainer EvaluateTopics]
+           [cc.mallet.topics.tui TopicTrainer EvaluateTopics HierarchicalLDATUI]
            [cc.mallet.topics ParallelTopicModel]
            [cc.mallet.pipe Pipe SerialPipes
             Target2Label SaveDataInSource Input2CharSequence
@@ -35,12 +38,6 @@
                  (vector (str "--" (name k)) (mallet-arg v))))
        (into-array String)))
 
-(defn print-topics [topics]
-  (doseq [[i topic] (map-indexed vector topics)]
-    (println (format "== Topic %d ==" i))
-    (println (str/join ", " (for [word topic] (str/replace word "_" " "))))
-    (println "")))
-
 ;; Commands
 
 (defn import-dir
@@ -58,7 +55,9 @@
                       [(CharSequence2TokenSequence. default-token-regex)
                        (TokenSequenceRemoveNonAlpha. true)
                        (when (:remove-stopwords opts)
-                         (TokenSequenceRemoveStopwords. false true))]
+                         (if-let [file (:extra-stopwords opts)]
+                           (TokenSequenceRemoveStopwords. file "UTF-8" true false true)
+                           (TokenSequenceRemoveStopwords. false true)))]
                       (when-let [token-pipes (:token-pipes opts)]
                         (map instantiate token-pipes))
                       [(when-let [gram-sizes (:gram-sizes opts)]
@@ -85,16 +84,11 @@
   (-> (options->args opts)
       (TopicTrainer/main)))
 
-(defn view-topics
-  "Inspect the topic model.
-  See kixi.mallet.boot for options"
+(defn train-lda-topics
+  "Train the topics using Mallet's HierarchicalLDATUI."
   [opts]
-  (let [model (ParallelTopicModel/read (:model opts))
-        topic-names (-> (.getTopicAlphabet model)
-                        (.toString)
-                        (clojure.string/split #"\n"))
-        top-topics (.getTopWords model (get opts :top-words 20))]
-    (print-topics top-topics)))
+  (-> (options->args opts)
+      (HierarchicalLDATUI/main)))
 
 (defn evaluate-topics
   "Evaluate the topics.
@@ -104,18 +98,35 @@
       (EvaluateTopics/main)))
 
 (defn topics-csv
-  "Output a CSV showing the topic allocations"
+  "TODO: prettify.
+  Output a CSV showing the topic allocations"
   [opts]
   (let [model (ParallelTopicModel/read (:model opts))
         instances (InstanceList/load (:input opts))]
-    (->> (map-indexed (fn [i instance]
-                        (let [probabilities (vec (.getTopicProbabilities model i))
-                              topic-index (->> (map-indexed vector probabilities)
-                                               (apply max-key second)
-                                               (first))
-                              {:keys [data name source target]} (bean instance)]
-                          (->> (map #(str/replace (str %) #"\s+" " ") [topic-index data name source target])
-                               (str/join "\t"))))
-                      instances)
-         (str/join "\n")
-         (spit (:output opts)))))
+    (when-let [phrases (some-> (and (:topics opts) (:xml-topic-phrase-report opts))
+                               io/input-stream
+                               xml/parse
+                               model/xml->topic-phrases)]
+      (->> (for [topic (range (inc (apply max (keys phrases))))]
+             (let [top-phrases (get phrases topic)
+                   top-docs (model/documents-for-topic model topic)]
+               (->> (map :source top-docs)
+                    (take 3)
+                    (concat [(str topic) (:words top-phrases) (:phrases top-phrases)])
+                    (map #(str/replace % #"\t" ""))
+                    (str/join "\t"))))
+           (str/join "\n")
+           (spit (:topics opts))))
+    (when (:document-topics opts)
+      (->> (map-indexed (fn [i instance]
+                          (let [probabilities (vec (.getTopicProbabilities model i))
+                                topics (->> (map vector (iterate inc 1) probabilities)
+                                            (sort-by second >)
+                                            (take 3)
+                                            (apply concat))
+                                {:keys [data name source target]} (bean instance)]
+                            (->> (concat [(fs/name name) source] topics)
+                                 (str/join "\t"))))
+                        instances)
+           (str/join "\n")
+           (spit (:document-topics opts))))))

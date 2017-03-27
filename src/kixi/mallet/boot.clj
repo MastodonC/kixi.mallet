@@ -50,9 +50,13 @@
   [filename]
   (str filename ".txt"))
 
-(defn update-vals-for-keys [coll f keys]
-  (reduce (fn [coll k]
-            (update coll k f)) coll keys))
+(defn update-some
+  [coll k f & args]
+  (if (contains? coll k) (apply update coll k f args) coll))
+
+(defn update-vals-for-keys
+  [coll f keys]
+  (reduce (fn [coll k] (update-some coll k f)) coll keys))
 
 (defn shared-parent-directory
   "Find the shared parent directory with the longest path"
@@ -93,7 +97,7 @@
 ;; Tasks ;;
 
 (deftask extract-text
-  []
+  [_ formatter CODE code "A function which, if provided, will be called on the extracted text"]
   (let [tmp (c/tmp-dir!)]
     (c/with-pre-wrap fileset
       (c/empty-dir! tmp)
@@ -106,7 +110,8 @@
               (info "Writing %s...\n" filename)
               (doto out-file
                 io/make-parents
-                (spit (extractor (c/tmp-file file))))
+                (spit (cond-> (extractor (c/tmp-file file))
+                        formatter (formatter))))
               (file/delete-file tmp-file))))
         (-> fileset
             (c/rm files)
@@ -123,53 +128,88 @@
    s keep-sequence bool "If true, final data will be a FeatureSequence rather than a FeatureVector. Default is false"
    p string-pipes NAME [sym] "An ordered sequence of string pipes to apply"
    t token-pipes NAME [sym] "An ordered sequence of token pipes to apply"
-   v feature-vector-pipes NAME [sym] "An ordered sequence of feature vector pipes to apply"]
-
+   v feature-vector-pipes NAME [sym] "An ordered sequence of feature vector pipes to apply"
+   _ extra-stopwords FILE file "Read whitespace-separated words from this file"]
   (with-fileset-wrapping
     script/import-dir *opts*
-    {:in-dir #{:input}
+    {:in #{:extra-stopwords}
+     :in-dir #{:input}
      :out #{:output}}))
 
 (deftask train-topics
   "A boot task exposing Mallet's train-topics command."
   [i input FILE file "The filename from which to read the list of training instances.  Use - for stdin. The instances must be FeatureSequence or FeatureSequenceWithBigrams, not FeatureVector. Default is null"
+   _ input-model FILE file "The filename from which to read the binary topic model. The --input option is ignored."
+   _ input-state FILE file "The filename from which to read the gzipped Gibbs sampling state created by --output-state."
    o output-model FILE file "The filename in which to write the binary topic model at the end of the iterations.  By default this is null, indicating that no file will be written. Default is null"
-   s output-state FILE file "The filename in which to write the Gibbs sampling state after at the end of the iterations.  By default this is null, indicating that no file will be written. Default is null"
+   _ output-state FILE file "The filename in which to write the Gibbs sampling state after at the end of the iterations.  By default this is null, indicating that no file will be written. Default is null"
    k num-topics NUMBER int "The number of topics to fit. Default is 10"
-   n output-model-interval INT int "The number of iterations between writing the model (and its Gibbs sampling state) to a binary file. You must also set the --output-model to use this option, whose argument will be the prefix of the filenames. Default is 0"
-   x output-state-interval INT int "The number of iterations between writing the sampling state to a text file. You must also set the --output-state to use this option, whose argument will be the prefix of the filenames. Default is 0"
+   _ num-top-words NUMBER int "The number of most probable words to print for each topic after model estimation."
+   _ output-model-interval INT int "The number of iterations between writing the model (and its Gibbs sampling state) to a binary file. You must also set the --output-model to use this option, whose argument will be the prefix of the filenames. Default is 0"
    a alpha DECIMAL float "SumAlpha parameter: sum over topics of smoothing over doc-topic distributions. alpha_k = [this value] / [num topics]. Default is 5.0"
    b beta DECIMAL float "Beta parameter: smoothing parameter for each topic-word. beta_w = [this value]. Default is 0.01"
-   e evaluator-filename FILE file "A held-out likelihood evaluator for new documents"
-   t show-topics-interval INT int "The number of iterations between printing a brief summary of topics so far"]
-
+   _ inferencer-filename FILE file "A topic inferencer applies a previously trained topic model to new documents."
+   _ evaluator-filename FILE file "A held-out likelihood evaluator for new documents"
+   _ show-topics-interval INT int "The number of iterations between printing a brief summary of topics so far"
+   _ output-state-interval INT int "The number of iterations between writing the sampling state to a text file. You must also set the --output-state to use this option, whose argument will be the prefix of the filenames. Default is 0"
+   _ num-top-docs INT int "When writing topic documents with --output-topic-docs"
+   _ doc-topics-max INT int "When writing topic proportions per document with --output-doc-topics"
+   _ topic-word-weights-file FILE file "The filename in which to write unnormalized weights for every topic and word type."
+   _ word-topic-counts-file FILE file "The filename in which to write a sparse representation of topic-word assignments."
+   _ doc-topics-threshold DECIMAL float "When writing topic proportions per document with --output-doc-topics"
+   _ xml-topic-report FILE file "The filename in which to write the top words for each topic and any Dirichlet parameters in XML format."
+   _ xml-topic-phrase-report FILE file "The filename in which to write the top words and phrases for each topic and any Dirichlet parameters in XML format."
+   _ output-doc-topics FILE file "The filename in which to write the topic proportions per document, at the end of the iterations."
+   _ output-topic-docs FILE file "The filename in which to write the most prominent documents for each topic, at the end of the iterations."
+   _ output-topic-keys FILE file ""
+   _ optimize-interval NUM int "The number of iterations between reestimating dirichlet hyperparameters."
+   _ diagnostics-file FILE file "The filename in which to write measures of topic quality, in XML format."
+   _ num-threads INT int "The number of threads for parallel training."
+   _ num-iterations INT int "The number of iterations of Gibbs sampling."
+   _ num-icm-iterations INT int "The number of iterations of iterated conditional modes (topic maximization)."
+   _ no-interence bool "Do not perform inference, just load a saved model and create a report. Equivalent to --num-iterations 0."
+   _ optimize-burn-in INT int "The number of iterations to run before first estimating dirichlet hyperparameters."
+   _ use-symmetric-alpha bool "Only optimize the concentration parameter of the prior over document-topic distributions. This may reduce the number of very small, poorly estimated topics, but may disperse common words over several topics."
+   ]
   (with-fileset-wrapping
     script/train-topics *opts*
     {:in #{:input}
-     :out #{:output-model}}))
+     :out #{:output-model :output-doc-topics :output-topic-keys
+            :topic-word-weights-file :word-topic-counts-file
+            :diagnostics-file :xml-topic-report :xml-topic-phrase-report
+            :output-topic-docs}}))
 
-(deftask view-topics
-  [ ;;i input FILE file "The filename from which to read the list of instances"
-   m model FILE file "The filename from which to read the model"
-   n top-words INT int "The number of top words to show"]
+(deftask train-lda-topics
+  [i input FILE file ""
+   t testing FILE file ""
+   _ output-state FILE file ""
+   _ random-seed INTEGER int ""
+   n num-iterations INTEGER int ""
+   _ show-progress bool ""
+   _ show-topics-interval INTEGER int ""
+   _ num-top-words INTEGER int ""
+   _ num-levels INTEGER int ""
+   a alpha DECIMAL float ""
+   g gamma DECIMAL float ""
+   e eta DECIMAL float ""]
   (with-fileset-wrapping
-    script/view-topics *opts*
-    {:in #{:model}}))
+    script/train-lda-topics *opts*
+    {:in #{:input :testing}
+     :out #{:output-state}}))
 
 (deftask evaluate-topics
   "A boot task exposing Mallet's evaluate-topics"
   [e evaluator FILE file "Evaluator filename"
    i input FILE file "The filename from which to read the list of instances"
-   d output-doc-probs FILE file "The filename in which to write the interred log probabilities per document"
-   p output-prob FILE file "The filename in which to write the inferred log probability of the testing set"
+   _ output-doc-probs FILE file "The filename in which to write the interred log probabilities per document"
+   _ output-prob FILE file "The filename in which to write the inferred log probability of the testing set"
    k num-particles INT int "The number of particles to use in left-to-right evaluation"
-   w show-words bool "If true, print the log likelihood of each indvidual token"
+   _ show-words bool "If true, print the log likelihood of each indvidual token"
    r use-resampling bool "Whether to resample topics in left-to-right evaluation. Resampling is more accurate, but leads to quadratic scaling in the length of the documents"
    n num-iterations INT int "The number of iterations of Gibbs sampling"
-   s sample-interval INT int "The number of iterations between saved samples"
-   b burn-in INT int "The number of iterations before the first sample is saved"
-   x random-seed INT int "The random seed for the Gibbs sampler"]
-
+   _ sample-interval INT int "The number of iterations between saved samples"
+   _ burn-in INT int "The number of iterations before the first sample is saved"
+   _ random-seed INT int "The random seed for the Gibbs sampler"]
   (with-fileset-wrapping
     script/evaluate-topics *opts*
     {:in #{:input :evaluator}
@@ -178,8 +218,10 @@
 (deftask topics-csv
   [m model FILE file "The model file"
    i input FILE file "The input file"
-   o output FILE file "The output file"]
+   _ xml-topic-phrase-report FILE file "The phrase report input"
+   _ topics FILE file "The topics output"
+   _ document-topics FILE file "The file mapping documents to topics"]
   (with-fileset-wrapping
     script/topics-csv *opts*
-    {:in #{:model :input}
-     :out #{:output}}))
+    {:in #{:model :input :xml-topic-phrase-report}
+     :out #{:topics :document-topics}}))

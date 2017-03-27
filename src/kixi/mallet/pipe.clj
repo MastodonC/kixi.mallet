@@ -33,3 +33,9 @@
      (gen-class :name ~(symbol (str (ns-name *ns*) "." name))
                 :extends cc.mallet.pipe.Pipe
                 :prefix ~(symbol (str name "-")))))
+
+(defn map-tokens!
+  [f tokens]
+  (doseq [token tokens]
+    (.setText token (f (.getText token))))
+  tokens)

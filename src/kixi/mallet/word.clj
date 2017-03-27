@@ -1,8 +1,12 @@
 (ns kixi.mallet.word
   (:require [clojure.java.io :as io])
-  (:import [org.apache.poi.xwpf.usermodel XWPFDocument]
+  (:import [org.apache.pdfbox.pdmodel PDDocument]
+           [org.apache.pdfbox.text PDFTextStripper]
+           [org.apache.poi.xwpf.usermodel XWPFDocument]
+           [org.apache.poi.hwpf HWPFDocument]
            [org.apache.poi.openxml4j.opc OPCPackage]
-           [org.apache.poi.xwpf.extractor XWPFWordExtractor]))
+           [org.apache.poi.xwpf.extractor XWPFWordExtractor]
+           [org.apache.poi.hwpf.extractor WordExtractor]))
 
 (defn docx->text [f]
   (with-open [in (io/input-stream f)]
