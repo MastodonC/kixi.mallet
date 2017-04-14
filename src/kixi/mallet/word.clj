@@ -13,3 +13,17 @@
     (let [worddoc (new XWPFDocument (OPCPackage/open in))
           extractor (new XWPFWordExtractor worddoc)]
       (.getText extractor))))
+
+(defn pdf->text [f]
+  (with-open [in (io/input-stream f)]
+    (let [stripper (PDFTextStripper.)
+          pdf (PDDocument/load f)
+          text (.getText stripper pdf )]
+      (.close pdf)
+      text)))
+
+(defn doc->text [f]
+  (with-open [in (io/input-stream f)]
+    (let [doc (HWPFDocument. in)
+          extractor (WordExtractor. doc)]
+      (.getText extractor))))
