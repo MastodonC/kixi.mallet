@@ -84,7 +84,8 @@
                     (doto (io/file tmp output)
                       io/make-parents))
           indir (fn [input]
-                  (->>  (c/by-re [#"docs"] (c/input-files fileset))
+                  (->>  (c/input-files fileset)
+                        (by-prefix (.getName input))
                         (c/not-by-name [".DS_Store"])
                         (map c/tmp-file)
                         (reduce shared-parent-directory)))
