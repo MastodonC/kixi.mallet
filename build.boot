@@ -10,6 +10,7 @@
                  [cc.mallet/mallet "2.0.8"]
                  [me.raynes/fs "1.4.6"]
                  [org.apache.pdfbox/pdfbox "2.0.5"]
+                 [org.bouncycastle/bcprov-jdk15on "1.56"]
                  [org.apache.poi/poi "3.15"]
                  [org.apache.poi/poi-scratchpad "3.15"]
                  [org.apache.poi/poi-ooxml "3.15"]

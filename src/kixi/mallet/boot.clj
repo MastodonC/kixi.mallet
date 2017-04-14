@@ -1,7 +1,7 @@
 (ns kixi.mallet.boot
   (:require [boot.core :as c :refer [deftask]]
             [boot.file :as file]
-            [boot.util :refer [info]]
+            [boot.util :refer [info fail]]
             [kixi.mallet.word :as word]
             [kixi.mallet.pipes :as pipes]
             [kixi.mallet.script :as script]
@@ -38,7 +38,9 @@
       (zipmap (repeat {::kixi-input true}))))
 
 (def text-extractors
-  {".docx" word/docx->text})
+  {".docx" word/docx->text
+   ".pdf"  word/pdf->text
+   ".doc"  word/doc->text})
 
 (defn text-extractor [file]
   (some (fn [[suffix extractor]]
@@ -108,10 +110,13 @@
             (let [filename (->txt-filename (c/tmp-path file))
                   out-file (io/file tmp filename)]
               (info "Writing %s...\n" filename)
-              (doto out-file
-                io/make-parents
-                (spit (cond-> (extractor (c/tmp-file file))
-                        formatter (formatter))))
+              (try
+                (doto out-file
+                  io/make-parents
+                  (spit (cond-> (extractor (c/tmp-file file))
+                          formatter (formatter))))
+                (catch java.io.IOException e
+                  (fail (str "Failed to extract text from: " filename "\n"))))
               (file/delete-file tmp-file))))
         (-> fileset
             (c/rm files)
