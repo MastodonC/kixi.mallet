@@ -6,7 +6,14 @@
            [org.apache.poi.hwpf HWPFDocument]
            [org.apache.poi.openxml4j.opc OPCPackage]
            [org.apache.poi.xwpf.extractor XWPFWordExtractor]
-           [org.apache.poi.hwpf.extractor WordExtractor]))
+           [org.apache.poi.hwpf.extractor WordExtractor]
+           [org.apache.poi.hssf.extractor ExcelExtractor]
+           [org.apache.poi.poifs.filesystem POIFSFileSystem]))
+
+(defn xls->text [f]
+  (let [xsldoc (POIFSFileSystem. f)
+        extractor (new ExcelExtractor xsldoc)]
+      (.getText extractor)))
 
 (defn docx->text [f]
   (with-open [in (io/input-stream f)]
