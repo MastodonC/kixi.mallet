@@ -21,7 +21,7 @@
             TokenSequenceNGrams TokenSequence2FeatureSequence
             FeatureSequence2AugmentableFeatureVector]
            [cc.mallet.pipe.iterator FileIterator]
-           [java.io File FileOutputStream ObjectOutputStream]
+           [java.io File FileOutputStream ObjectOutputStream FileFilter]
            [java.nio.charset Charset]))
 
 (defn mallet-arg
@@ -45,7 +45,7 @@
   See kixi.mallet.boot for options"
   [opts]
   (let [default-token-regex (re-pattern "\\p{L}[\\p{L}\\p{P}]+\\p{L}")
-        directories (into-array File [(:input opts)])
+        directory (:input opts)
         instantiate (fn [sym]
                       (clojure.lang.Reflector/invokeConstructor (resolve sym) (into-array [])))
         pipes (concat [(Target2Label.)
@@ -69,8 +69,13 @@
                       (when-let [feature-vector-pipes (:feature-vector-pipes opts)]
                         (map instantiate feature-vector-pipes)))
         instance-pipe (SerialPipes. (into-array Pipe (keep identity pipes)))
-        instances (InstanceList. instance-pipe)]
-    (.addThruPipe instances (FileIterator. directories FileIterator/STARTING_DIRECTORIES true))
+        instances (InstanceList. instance-pipe)
+        txt-filter (reify FileFilter
+                     (accept [this f]
+                       (and
+                        (.isFile f)
+                        (boolean (re-find #".txt$" (.getName f))))))]
+    (.addThruPipe instances (FileIterator. directory txt-filter FileIterator/STARTING_DIRECTORIES true))
     (doto (-> (:output opts)
               (FileOutputStream.)
               (ObjectOutputStream.))
