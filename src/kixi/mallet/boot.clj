@@ -39,6 +39,7 @@
 
 (def text-extractors
   {".docx" word/docx->text
+   ".docm" word/docx->text
    ".pdf"  word/pdf->text
    ".doc"  word/doc->text
    ".xls"  word/xls->text})
