@@ -102,6 +102,22 @@
   (-> (options->args opts)
       (EvaluateTopics/main)))
 
+(defn sq [x]
+  (* x x))
+
+(defn sqrt [x]
+  (Math/sqrt x))
+
+(defn cosine-similarity [a b]
+  (let [dot-product (->> (map * a b)
+                         (apply +))
+        magnitude (fn [d]
+                    (->> (map sq d)
+                         (apply +)
+                         (sqrt)))]
+    (try (/ dot-product (* (magnitude a) (magnitude b)))
+         (catch Exception e 0.0))))
+
 (defn topics-csv
   "TODO: prettify.
   Output a CSV showing the topic allocations"
@@ -135,3 +151,46 @@
                         instances)
            (str/join "\n")
            (spit (:document-topics opts))))))
+
+
+(defn topics-graph
+  [opts]
+  (let [model (ParallelTopicModel/read (:model opts))
+        instances (InstanceList/load (:input opts))
+        documents (->> (map-indexed vector instances)
+                       (reduce (fn [coll [i instance]]
+                                 (let [probabilities (vec (.getTopicProbabilities model i))
+                                       {:keys [data name source target]} (bean instance)]
+                                   (update coll name #(if %1 (map + %1 %2) %2) probabilities))) {})
+                       (map-indexed vector))
+        topics (->> (map #(vec (.getTopicProbabilities model %)) (range (count instances)))
+                    (apply map vector)
+                    (map-indexed vector))]
+    (when (:documents-net opts)
+      (->> (str (format "*Vertices %d\n" (count documents))
+                (->> documents
+                     (map
+                      (fn [[i [title p]]]
+                        (format "%d \"%s\" 0.0 0.0 0.0\n" (inc i) title)))
+                     (str/join))
+                "*Arcs"
+                (->> (for [[i [a ap]] documents
+                           [j [b bp]] documents
+                           :when (not= i j)]
+                       (format "%d %d %f\n" (inc i) (inc j) (cosine-similarity ap bp)))
+                     (str/join)))
+           (spit (:documents-net opts))))
+    (when (:topics-net opts)
+      (->> (str (format "*Vertices %d\n" (count topics))
+                (->> topics
+                     (map
+                      (fn [[i p]]
+                        (format "%d \"%s\" 0.0 0.0 0.0\n" (inc i) (inc i))))
+                     (str/join))
+                "*Arcs"
+                (->> (for [[i ap] topics
+                           [j bp] topics
+                           :when (not= i j)]
+                       (format "%d %d %f\n" (inc i) (inc j) (cosine-similarity ap bp)))
+                     (str/join)))
+           (spit (:topics-net opts))))))

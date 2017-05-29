@@ -127,6 +127,11 @@
             (c/add-meta (text-input-meta tmp))
             c/commit!)))))
 
+(defmacro log-invocation [sym]
+  `(fn [opts#]
+     (info "Invoking %s...\n" (var ~sym))
+     (~sym opts#)))
+
 (deftask import-dir
   "A boot task which mirrors Mallet's import-dir command."
   [i input DIR file "The directory containing text files to be classified, one directory per class"
@@ -139,7 +144,7 @@
    v feature-vector-pipes NAME [sym] "An ordered sequence of feature vector pipes to apply"
    _ extra-stopwords FILE file "Read whitespace-separated words from this file"]
   (with-fileset-wrapping
-    script/import-dir *opts*
+    (log-invocation script/import-dir) *opts*
     {:in #{:extra-stopwords}
      :in-dir #{:input}
      :out #{:output}}))
@@ -180,7 +185,7 @@
    _ use-symmetric-alpha bool "Only optimize the concentration parameter of the prior over document-topic distributions. This may reduce the number of very small, poorly estimated topics, but may disperse common words over several topics."
    ]
   (with-fileset-wrapping
-    script/train-topics *opts*
+    (log-invocation script/train-topics) *opts*
     {:in #{:input}
      :out #{:output-model :output-doc-topics :output-topic-keys
             :topic-word-weights-file :word-topic-counts-file
@@ -228,8 +233,20 @@
    i input FILE file "The input file"
    _ xml-topic-phrase-report FILE file "The phrase report input"
    _ topics FILE file "The topics output"
-   _ document-topics FILE file "The file mapping documents to topics"]
+   _ document-topics FILE file "The file mapping documents to topics"
+   _ document-similarity FILE file "The file containing the document similarity matrix"
+   _ topic-similarity FILE file "The file containing the topic similarity matrix"]
   (with-fileset-wrapping
-    script/topics-csv *opts*
+    (log-invocation script/topics-csv) *opts*
     {:in #{:model :input :xml-topic-phrase-report}
      :out #{:topics :document-topics}}))
+
+(deftask topics-graph
+  [m model FILE file "The model file"
+   i input FILE file "The input file"
+   _ topics-net FILE file "The topic relationships as a net file"
+   _ documents-net FILE file "The document relationships as a net file"]
+  (with-fileset-wrapping
+    (log-invocation script/topics-graph) *opts*
+    {:in #{:model :input}
+     :out #{:topics-net :documents-net}}))
