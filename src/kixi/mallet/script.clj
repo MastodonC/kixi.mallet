@@ -72,9 +72,11 @@
         instances (InstanceList. instance-pipe)
         txt-filter (reify FileFilter
                      (accept [this f]
-                       (and
-                        (.isFile f)
-                        (boolean (re-find #".txt$" (.getName f))))))]
+                       (boolean
+                        (when (and (.isFile f)
+                                   (re-find #".txt$" (.getName f)))
+                          (info (format "Importing %s\n" (.getName f)))
+                          true))))]
     (.addThruPipe instances (FileIterator. directory txt-filter FileIterator/STARTING_DIRECTORIES true))
     (doto (-> (:output opts)
               (FileOutputStream.)
@@ -161,7 +163,7 @@
                        (reduce (fn [coll [i instance]]
                                  (let [probabilities (vec (.getTopicProbabilities model i))
                                        {:keys [data name source target]} (bean instance)]
-                                   (update coll name #(if %1 (map + %1 %2) %2) probabilities))) {})
+                                   (update coll (fs/name name) #(if %1 (map + %1 %2) %2) probabilities))) {})
                        (map-indexed vector))
         topics (->> (map #(vec (.getTopicProbabilities model %)) (range (count instances)))
                     (apply map vector)
