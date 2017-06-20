@@ -206,7 +206,7 @@
    g gamma DECIMAL float ""
    e eta DECIMAL float ""]
   (with-fileset-wrapping
-    script/train-lda-topics *opts*
+    (log-invocation script/train-lda-topics) *opts*
     {:in #{:input :testing}
      :out #{:output-state}}))
 
@@ -224,7 +224,7 @@
    _ burn-in INT int "The number of iterations before the first sample is saved"
    _ random-seed INT int "The random seed for the Gibbs sampler"]
   (with-fileset-wrapping
-    script/evaluate-topics *opts*
+    (log-invocation script/evaluate-topics) *opts*
     {:in #{:input :evaluator}
      :out #{:output-doc-probs :output-prob}}))
 
@@ -233,19 +233,26 @@
    i input FILE file "The input file"
    _ xml-topic-phrase-report FILE file "The phrase report input"
    _ topics FILE file "The topics output"
-   _ document-topics FILE file "The file mapping documents to topics"
-   _ document-similarity FILE file "The file containing the document similarity matrix"
-   _ topic-similarity FILE file "The file containing the topic similarity matrix"]
+   _ document-topics FILE file "The file mapping documents to topics"]
   (with-fileset-wrapping
     (log-invocation script/topics-csv) *opts*
     {:in #{:model :input :xml-topic-phrase-report}
      :out #{:topics :document-topics}}))
 
+(deftask name-rollup-csv
+  [m model FILE file "The model file"
+   i input FILE file "The input file" 
+   _ document-topics FILE file "The file mapping rolled-up documents to topics"]
+  (with-fileset-wrapping
+    (log-invocation script/name-rollup-csv) *opts*
+    {:in #{:model :input}
+     :out #{:document-topics}}))
+
 (deftask topics-graph
   [m model FILE file "The model file"
    i input FILE file "The input file"
    _ topics-net FILE file "The topic relationships as a net file"
-   _ documents-net FILE file "The document relationships as a net file"]
+   _ documents-net FILE file "The rolled-up document relationships as a net file"]
   (with-fileset-wrapping
     (log-invocation script/topics-graph) *opts*
     {:in #{:model :input}

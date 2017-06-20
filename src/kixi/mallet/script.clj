@@ -111,14 +111,18 @@
   (Math/sqrt x))
 
 (defn cosine-similarity [a b]
-  (let [dot-product (->> (map * a b)
-                         (apply +))
-        magnitude (fn [d]
-                    (->> (map sq d)
-                         (apply +)
-                         (sqrt)))]
-    (try (/ dot-product (* (magnitude a) (magnitude b)))
-         (catch Exception e 0.0))))
+  (let [counts (apply merge-with +
+                      (map
+                       (fn [[x y]]
+                         {:dot (* x y)
+                          :a (sq x)
+                          :b (sq y)})
+                       (map vector a b)))]
+    (try
+      (/ (:dot counts)
+         (* (sqrt (:a counts))
+            (sqrt (:b counts))))
+      (catch Exception e 0.0))))
 
 (defn topics-csv
   "TODO: prettify.
@@ -135,7 +139,7 @@
                    top-docs (model/documents-for-topic model topic)]
                (->> (map :source top-docs)
                     (take 3)
-                    (concat [(str topic) (:words top-phrases) (:phrases top-phrases)])
+                    (concat [(str (inc topic)) (:words top-phrases) (:phrases top-phrases)])
                     (map #(str/replace % #"\t" ""))
                     (str/join "\t"))))
            (str/join "\n")
@@ -154,6 +158,27 @@
            (str/join "\n")
            (spit (:document-topics opts))))))
 
+(defn name-rollup-csv
+  [opts]
+  (let [model (ParallelTopicModel/read (:model opts))
+        instances (InstanceList/load (:input opts))]
+    (when (:document-topics opts)
+      (->> (map-indexed vector instances)
+           (reduce (fn [coll [i instance]]
+                     (let [probabilities (vec (.getTopicProbabilities model i))
+                           {:keys [data name source target]} (bean instance)]
+                       (update coll name #(if %1 (map + %1 %2) %2) probabilities))) {})
+           (map (fn [[name probabilities]]
+                  (let [sum (apply + probabilities)
+                        topics (->> (map #(/ % sum) probabilities)
+                                    (map vector (iterate inc 1))
+                                    (sort-by second >)
+                                    (take 3)
+                                    (apply concat))]
+                    (->> (concat [name] topics)
+                         (str/join "\t")))))
+           (str/join "\n")
+           (spit (:document-topics opts))))))
 
 (defn topics-graph
   [opts]
@@ -164,6 +189,9 @@
                                  (let [probabilities (vec (.getTopicProbabilities model i))
                                        {:keys [data name source target]} (bean instance)]
                                    (update coll (fs/name name) #(if %1 (map + %1 %2) %2) probabilities))) {})
+                       (reduce (fn [coll [k ps]]
+                                 (let [sum (apply + ps)]
+                                   (assoc coll k (map #(/ % sum) ps)))) {})
                        (map-indexed vector))
         topics (->> (map #(vec (.getTopicProbabilities model %)) (range (count instances)))
                     (apply map vector)
