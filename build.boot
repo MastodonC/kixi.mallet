@@ -1,6 +1,6 @@
 (task-options!
  pom {:project 'kixi/mallet
-      :version "0.0.1-SNAPSHOT"}
+      :version "0.1.0"}
  push {:repo "clojars"})
 
 (set-env!
