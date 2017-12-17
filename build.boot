@@ -25,6 +25,7 @@
 
 (deftask release-locally []
   (comp (aot :namespace #{'kixi.mallet.pipes})
+        (javac)
         (pom)
         (jar)
         (install)))
@@ -32,6 +33,7 @@
 (deftask release
   []
   (comp (aot :namespace #{'kixi.mallet.pipes})
+        (javac)
         (pom)
         (jar)
         (push)))
