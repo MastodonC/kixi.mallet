@@ -21,6 +21,8 @@
             TokenSequenceNGrams TokenSequence2FeatureSequence
             FeatureSequence2AugmentableFeatureVector]
            [cc.mallet.pipe.iterator FileIterator]
+
+           [kixi.mallet TokenSequenceCleaner]
            [java.io File FileOutputStream ObjectOutputStream FileFilter]
            [java.nio.charset Charset]))
 
@@ -45,6 +47,7 @@
   See kixi.mallet.boot for options"
   [opts]
   (let [default-token-regex (re-pattern "\\p{L}[\\p{L}\\p{P}]+\\p{L}")
+        token-cleaner-regex (re-pattern "\\p{Alpha}+")
         directory (:input opts)
         instantiate (fn [sym]
                       (clojure.lang.Reflector/invokeConstructor (resolve sym) (into-array [])))
@@ -53,7 +56,7 @@
                       (when-let [string-pipes (:string-pipes opts)]
                         (map instantiate string-pipes))
                       [(CharSequence2TokenSequence. default-token-regex)
-                       (TokenSequenceRemoveNonAlpha. true)
+                       (TokenSequenceCleaner. true token-cleaner-regex)
                        (when (:remove-stopwords opts)
                          (if-let [file (:extra-stopwords opts)]
                            (TokenSequenceRemoveStopwords. file "UTF-8" true false true)
